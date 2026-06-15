@@ -1,14 +1,18 @@
 """公共抓取工具（多策略解析版）"""
 import json
 import re
+import socket
 import urllib.request
 from datetime import date
+
+# 全局兜底：任何网络操作最多等 15 秒，绝不无限挂起
+socket.setdefaulttimeout(15)
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 
 
-def http_get(url, timeout=25):
+def http_get(url, timeout=12):
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "*/*"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read().decode("utf-8", errors="replace")

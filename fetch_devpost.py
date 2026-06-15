@@ -13,7 +13,7 @@ API = ("https://devpost.com/api/hackathons"
 STATUS_MAP = {"open": "open", "upcoming": "upcoming", "ended": "ended"}
 
 
-def fetch_devpost_events(max_pages=20):
+def fetch_devpost_events(max_pages=12):
     events = []
     for page in range(1, max_pages + 1):
         try:
