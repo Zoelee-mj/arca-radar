@@ -1,0 +1,38 @@
+name: ARCA daily report
+
+on:
+  schedule:
+    - cron: '0 1 * * *'      # 每天 UTC 01:00 = 北京时间 09:00 自动运行
+  workflow_dispatch:          # 允许你在网页上手动点击运行
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 生成报告
+        run: |
+          python main.py
+          mkdir -p _site
+          cp report.html _site/index.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
