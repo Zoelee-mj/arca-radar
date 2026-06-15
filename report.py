@@ -1,4 +1,4 @@
-"""出图器（含主办方/Sponsor、报名人数、奖金、阶段 四个新列）"""
+"""出图器（分区版：黑客松 / Meetup / 已结束）"""
 import html
 from datetime import date
 
@@ -16,6 +16,7 @@ STATUS_STYLE = {
     "ongoing": ("进行中", "#E1F5EE", "#085041"), "upcoming": ("即将开始", "#FAEEDA", "#854F0B"),
     "ended": ("已结束", "#F1EFE8", "#888780"),
 }
+
 
 def _esc(s):
     return html.escape(str(s)) if s not in (None, "") else "—"
@@ -38,32 +39,13 @@ def _status_badge(s):
     label, bg, fg = STATUS_STYLE.get((s or "upcoming").lower(), ("即将开始", "#FAEEDA", "#854F0B"))
     return f'<span class="badge" style="background:{bg};color:{fg}">{label}</span>'
 
-def build_report(scored_events, today=None):
-    today = today or date.today().isoformat()
-    total = len(scored_events)
-    high = sum(1 for e in scored_events if e["priority"] == "高")
-    skipped = sum(1 for e in scored_events if e["priority"] == "跳过")
-    new_today = [e for e in scored_events if e.get("date_added") == today and e["priority"] != "跳过"]
 
-    new_cards = ""
-    for e in sorted(new_today, key=lambda x: x["score"], reverse=True):
-        prize_line = f'<div class="card-prize">🏆 {_esc(e.get("prize"))}</div>' if e.get("prize") else ""
-        new_cards += f"""
-        <div class="card">
-          <div class="card-top"><span class="card-title">{_esc(e['title'])}</span><span class="card-score">{e['score']}</span></div>
-          <div class="card-meta">{_esc(e['source'])} · {_esc(e.get('date'))} · {_esc(e.get('location'))} · {_esc(e.get('event_type'))}</div>
-          <div class="card-host">主办：{_esc(e.get('host'))}　报名 {_num(e.get('registrations'))}</div>
-          {prize_line}
-          <div class="pills">{_tag_pills(e['tags'])}</div>
-          <a class="card-link" href="{_esc(e['url'])}" target="_blank">查看活动 &rarr;</a>
-        </div>"""
-    if not new_cards:
-        new_cards = '<p class="empty">今天暂时没有新的高优先级活动。明天再来看看。</p>'
-
+def _table(events, today, show_new=True):
+    if not events:
+        return '<p class="empty">这个分区暂时没有活动。</p>'
     rows = ""
-    ordered = sorted(scored_events, key=lambda x: (x.get("date_added", ""), x["score"]), reverse=True)
-    for e in ordered:
-        is_new = "new" if e.get("date_added") == today else ""
+    for e in events:
+        is_new = "new" if (show_new and e.get("date_added") == today) else ""
         new_tag = '<span class="newtag">NEW</span>' if is_new else ""
         rows += f"""
         <tr class="{is_new}">
@@ -80,10 +62,53 @@ def build_report(scored_events, today=None):
           <td class="score">{e['score']}</td>
           <td>{_priority_badge(e['priority'])}</td>
         </tr>"""
+    return f"""<div class="table-wrap"><table>
+      <thead><tr>
+        <th>活动</th><th>来源</th><th>主办方 / Sponsor</th><th>日期</th><th>阶段</th>
+        <th>形式</th><th>报名人数</th><th>奖金 / 积分</th><th>ARCA分</th><th>优先级</th>
+      </tr></thead><tbody>{rows}</tbody></table></div>"""
 
-    return TEMPLATE.format(today=_esc(today), total=total, high=high,
-                           new_count=len(new_today), skipped=skipped,
-                           new_cards=new_cards, rows=rows)
+
+def build_report(scored_events, today=None):
+    today = today or date.today().isoformat()
+
+    ended = [e for e in scored_events if (e.get("status") or "").lower() == "ended"]
+    active = [e for e in scored_events if (e.get("status") or "").lower() != "ended"]
+    hackathons = sorted([e for e in active if e.get("track") == "hackathon"],
+                        key=lambda x: (x.get("date_added", ""), x["score"]), reverse=True)
+    meetups = sorted([e for e in active if e.get("track") != "hackathon"],
+                     key=lambda x: (x.get("date_added", ""), x["score"]), reverse=True)
+    ended = sorted(ended, key=lambda x: x.get("date", ""), reverse=True)
+    new_today = [e for e in active if e.get("date_added") == today and e["priority"] != "跳过"]
+
+    total = len(scored_events)
+    high = sum(1 for e in active if e["priority"] == "高")
+
+    new_cards = ""
+    for e in sorted(new_today, key=lambda x: x["score"], reverse=True):
+        prize_line = f'<div class="card-prize">🏆 {_esc(e.get("prize"))}</div>' if e.get("prize") else ""
+        cls = "黑客松" if e.get("track") == "hackathon" else "活动"
+        new_cards += f"""
+        <div class="card">
+          <div class="card-top"><span class="card-title">{_esc(e['title'])}</span><span class="card-score">{e['score']}</span></div>
+          <div class="card-meta">{cls} · {_esc(e['source'])} · {_esc(e.get('date'))} · {_esc(e.get('location'))}</div>
+          <div class="card-host">主办：{_esc(e.get('host'))}　报名 {_num(e.get('registrations'))}</div>
+          {prize_line}
+          <div class="pills">{_tag_pills(e['tags'])}</div>
+          <a class="card-link" href="{_esc(e['url'])}" target="_blank">查看活动 &rarr;</a>
+        </div>"""
+    if not new_cards:
+        new_cards = '<p class="empty">今天暂时没有新的高优先级活动。明天再来看看。</p>'
+
+    return TEMPLATE.format(
+        today=_esc(today), total=total, high=high,
+        hack_count=len(hackathons), meet_count=len(meetups), ended_count=len(ended),
+        new_count=len(new_today), new_cards=new_cards,
+        hack_table=_table(hackathons, today),
+        meet_table=_table(meetups, today),
+        ended_table=_table(ended, today, show_new=False),
+    )
+
 
 TEMPLATE = """<!DOCTYPE html>
 <html lang="zh"><head>
@@ -100,14 +125,15 @@ TEMPLATE = """<!DOCTYPE html>
   .head {{ display:flex; align-items:center; gap:10px; }}
   .head h1 {{ font-size:24px; font-weight:600; margin:0; }}
   .sub {{ color:var(--muted); font-size:13px; margin:4px 0 28px; }}
-  .stats {{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:36px; }}
+  .stats {{ display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:36px; }}
   @media(max-width:680px){{ .stats{{grid-template-columns:repeat(2,1fr);}} }}
-  .stat {{ background:#f1efe8; border-radius:10px; padding:16px; }}
-  .stat .label {{ font-size:13px; color:var(--muted); }}
-  .stat .num {{ font-size:26px; font-weight:600; margin-top:2px; }}
+  .stat {{ background:#f1efe8; border-radius:10px; padding:14px; }}
+  .stat .label {{ font-size:12px; color:var(--muted); }}
+  .stat .num {{ font-size:24px; font-weight:600; margin-top:2px; }}
   .num.green {{ color:#0f6e56; }} .num.info {{ color:var(--info); }} .num.faint {{ color:var(--faint); }}
-  .sec {{ font-size:17px; font-weight:600; margin:0 0 14px; }}
-  .cards {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:14px; margin-bottom:40px; }}
+  .sec {{ font-size:17px; font-weight:600; margin:34px 0 6px; }}
+  .sec-desc {{ font-size:12px; color:var(--muted); margin:0 0 14px; }}
+  .cards {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:14px; margin-bottom:10px; }}
   .card {{ background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:16px 18px; }}
   .card-top {{ display:flex; justify-content:space-between; gap:8px; align-items:start; }}
   .card-title {{ font-size:15px; font-weight:600; }}
@@ -118,7 +144,7 @@ TEMPLATE = """<!DOCTYPE html>
   .pills {{ display:flex; flex-wrap:wrap; gap:6px; }}
   .pill {{ font-size:11px; padding:2px 9px; border-radius:8px; }}
   .card-link {{ display:inline-block; margin-top:12px; font-size:13px; color:var(--info); text-decoration:none; }}
-  .empty {{ color:var(--muted); font-size:14px; background:var(--surface); border:1px dashed var(--line); border-radius:12px; padding:20px; }}
+  .empty {{ color:var(--muted); font-size:14px; background:var(--surface); border:1px dashed var(--line); border-radius:12px; padding:18px; }}
   .table-wrap {{ background:var(--surface); border:1px solid var(--line); border-radius:12px; overflow-x:auto; }}
   table {{ width:100%; border-collapse:collapse; font-size:13px; min-width:980px; }}
   thead tr {{ background:#f1efe8; color:var(--muted); text-align:left; }}
@@ -133,26 +159,36 @@ TEMPLATE = """<!DOCTYPE html>
   .muted {{ color:var(--muted); }} .nowrap {{ white-space:nowrap; }}
   .score {{ font-weight:600; }}
   .badge {{ font-size:11px; padding:2px 10px; border-radius:8px; white-space:nowrap; }}
-  .foot {{ color:var(--faint); font-size:12px; margin-top:22px; }}
+  details.ended {{ margin-top:8px; }}
+  details.ended summary {{ cursor:pointer; color:var(--muted); font-size:13px; padding:8px 0; }}
+  .foot {{ color:var(--faint); font-size:12px; margin-top:26px; }}
 </style></head>
 <body><div class="wrap">
   <div class="head"><span style="font-size:22px;">&#128225;</span><h1>ARCA 活动雷达</h1></div>
-  <div class="sub">数据来源：Luma + lablab + Devpost · 按 ARCA 标准自动打分筛选 · 生成于 {today}</div>
+  <div class="sub">数据来源：Luma + lablab + Devpost · 按 ARCA 标准分两类打分 · 生成于 {today}</div>
   <div class="stats">
     <div class="stat"><div class="label">收录活动</div><div class="num">{total}</div></div>
     <div class="stat"><div class="label">高优先级</div><div class="num green">{high}</div></div>
-    <div class="stat"><div class="label">今日新发现</div><div class="num info">{new_count}</div></div>
-    <div class="stat"><div class="label">已过滤掉</div><div class="num faint">{skipped}</div></div>
+    <div class="stat"><div class="label">黑客松(进行中)</div><div class="num">{hack_count}</div></div>
+    <div class="stat"><div class="label">活动/Meetup</div><div class="num">{meet_count}</div></div>
+    <div class="stat"><div class="label">已结束</div><div class="num faint">{ended_count}</div></div>
   </div>
+
   <div class="sec">&#128293; 今日新发现 · 值得关注</div>
+  <div class="sec-desc">当天新抓到、优先级为高/中的活动</div>
   <div class="cards">{new_cards}</div>
-  <div class="sec">&#128203; 全部活动（新增的排在最前面 · 左右可滑动看全部列）</div>
-  <div class="table-wrap"><table>
-    <thead><tr>
-      <th>活动</th><th>来源</th><th>主办方 / Sponsor</th><th>日期</th><th>阶段</th>
-      <th>形式</th><th>报名人数</th><th>奖金 / 积分</th><th>ARCA分</th><th>优先级</th>
-    </tr></thead>
-    <tbody>{rows}</tbody>
-  </table></div>
-  <div class="foot">每天自动重新生成。报名人数 / 奖金等字段以数据源公开信息为准，缺失时显示 &mdash;。</div>
+
+  <div class="sec">&#127942; 黑客松（Devpost + lablab）</div>
+  <div class="sec-desc">按 技术主题 + 奖金 + 报名人数 打分 · 新增排最前</div>
+  {hack_table}
+
+  <div class="sec">&#129309; 活动 / Meetup（Luma）</div>
+  <div class="sec-desc">按 技术主题 + 形式 打分 · 不计报名人数 · 新增排最前</div>
+  {meet_table}
+
+  <div class="sec">&#128451; 已结束</div>
+  <div class="sec-desc">历史活动，仅供参考</div>
+  <details class="ended"><summary>展开查看 {ended_count} 个已结束活动</summary>{ended_table}</details>
+
+  <div class="foot">每天自动重新生成。报名人数仅黑客松参与打分；Luma 活动常无公开人数，显示 &mdash;。</div>
 </div></body></html>"""
