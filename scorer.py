@@ -1,25 +1,26 @@
 """
-ARCA 打分大脑
--------------
-输入一个活动（标题 + 描述 + 形式），输出：
-  - score   : 0-100 的 ARCA 相关分
-  - tags    : 命中的主题标签（Agents / AI Coding / MCP ...）
-  - priority: 高 / 中 / 跳过
+ARCA 打分大脑（分两类 + 报名人数加分版）
+=========================================
+两类活动分开打分，用不同的尺子：
+  A 类 · 黑客松 (track="hackathon")：来源 Devpost / lablab，或形式是 hackathon/demo day/build
+        —— 看 技术主题 + 奖金 + 报名人数（人越多越高，0 人重罚）
+  B 类 · 活动/Meetup (track="meetup")：来源 Luma
+        —— 看 技术主题 + 形式（不看报名人数，因为 Luma 常拿不到）
 
-逻辑完全基于 ARCA 的关注重点：高密度技术开发者、AI Builder、
-Agent / Coding / Infra / LLM 工程 / 开源 / 黑客松 / MCP 生态。
-低优先级：AI 绘画、内容创作、营销、入门课、泛社交。
+输出：score(0-100)、tags、priority(高/中/跳过)、track(hackathon/meetup)
+已结束(status=ended)的活动照常打分，但在报告里单独成区。
+
+★ 想改规则，主要动下面三块：POSITIVE(加分词)、NEGATIVE(减分词)、
+  以及 HACKATHON_REG_TIERS(报名人数加分档)。
 """
 
-# 加分词：命中就加分，并贴上对应标签。
-# 格式: (标签, [关键词...], 该标签的权重)
 POSITIVE = [
     ("Agents",      ["ai agent", "agentic", "multi-agent", "autonomous agent", "agent framework",
                      "langchain", "llamaindex", "crewai", "autogen", "langgraph"], 16),
     ("AI Coding",   ["ai coding", "vibe coding", "cursor", "claude code", "codex", "copilot",
                      "windsurf", "code generation", "pair programming", "coding agent"], 16),
     ("MCP",         ["mcp", "model context protocol"], 16),
-    ("DevTools",    ["developer tool", "devtools", "dev tools", "sdk", "api", "tooling"], 9),
+    ("DevTools",    ["developer tool", "devtools", "dev tools", "sdk", "tooling"], 9),
     ("Infra",       ["infrastructure", "infra", "inference", "gpu", "serving", "vector db",
                      "vector database", "orchestration"], 11),
     ("LLM Eng",     ["llm", "fine-tun", "fine tun", "post-training", "post training", "rlhf",
@@ -32,7 +33,6 @@ POSITIVE = [
     ("Automation",  ["automation", "workflow", "agentic workflow", "n8n", "zapier"], 7),
 ]
 
-# 减分词：命中就扣分，说明偏离 ARCA 重点。
 NEGATIVE = [
     (["ai art", "generative art", "midjourney", "image generation", "stable diffusion",
       "text-to-image", "ai drawing", "design tool"], 22),
@@ -46,27 +46,56 @@ NEGATIVE = [
     (["nft", "crypto trading", "memecoin"], 14),
 ]
 
-# 活动形式的额外加权：动手做 > 工作坊 > 演讲 > 纯社交
 FORMAT_BONUS = {
     "hackathon": 14, "demo day": 12, "build": 12, "buildathon": 14,
     "workshop": 8, "bootcamp": 6, "talk": 2, "conference": 4,
     "meetup": 3, "mixer": -6, "webinar": -4, "panel": 1,
 }
 
+# 黑客松报名人数加分档（人越多分越高；0 人或极少重罚）
+# 格式: (报名人数下限, 加分)。从高到低匹配，命中第一个。
+HACKATHON_REG_TIERS = [
+    (2000, 16),
+    (1000, 12),
+    (500,   8),
+    (100,   4),
+    (10,    0),
+    (1,   -12),   # 1-9 人：基本没人参加，重扣
+    (0,   -20),   # 0 人：重罚，绝不会进高优先级
+]
+
+
+def _track(event):
+    """判断属于哪一类。"""
+    src = (event.get("source") or "").lower()
+    fmt = (event.get("event_type") or "").lower()
+    if src in ("devpost", "lablab"):
+        return "hackathon"
+    if any(k in fmt for k in ("hackathon", "demo day", "build", "buildathon")):
+        return "hackathon"
+    return "meetup"
+
+
+def _registration_bonus(reg):
+    if not isinstance(reg, (int, float)):
+        return 0  # 拿不到人数就不加不减
+    for floor, bonus in HACKATHON_REG_TIERS:
+        if reg >= floor:
+            return bonus
+    return 0
+
 
 def score_event(event):
-    """给单个活动打分。event 是一个 dict，至少包含 title 和 description。"""
     text = ((event.get("title", "") + " " + event.get("description", "")
              + " " + event.get("event_type", "")).lower())
+    track = _track(event)
 
     score = 0
     tags = []
-
     for tag, words, weight in POSITIVE:
         if any(w in text for w in words):
             score += weight
             tags.append(tag)
-
     for words, penalty in NEGATIVE:
         if any(w in text for w in words):
             score -= penalty
@@ -77,8 +106,14 @@ def score_event(event):
             score += bonus
             break
 
-    # 收口到 0-100
-    score = max(0, min(100, score + 30))  # +30 基线，让分数分布更直观
+    if track == "hackathon":
+        # 奖金加分（有奖金 +6）
+        if event.get("prize"):
+            score += 6
+        # 报名人数加分（只对黑客松）
+        score += _registration_bonus(event.get("registrations"))
+
+    score = max(0, min(100, score + 30))  # +30 基线
 
     if score >= 70:
         priority = "高"
@@ -89,12 +124,12 @@ def score_event(event):
 
     event = dict(event)
     event["score"] = score
-    event["tags"] = tags[:4]          # 最多展示 4 个标签
+    event["tags"] = tags[:4]
     event["priority"] = priority
+    event["track"] = track
     return event
 
 
 def score_all(events):
-    """给一批活动打分，并按分数从高到低排序。"""
     return sorted((score_event(e) for e in events),
                   key=lambda e: e["score"], reverse=True)
