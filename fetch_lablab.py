@@ -14,6 +14,26 @@ from sources_common import clean_text, UA
 
 PRIZE_RE = re.compile(r"(\$[\d,]+(?:\.\d+)?\s*[kKmM]?\+?)")
 
+# 从描述文字里识别这些知名公司/合作方，填进主办方列（抓不全但免费）
+KNOWN_COMPANIES = [
+    "Qualcomm", "Meta", "Samsung", "GitHub", "PyTorch", "AMD", "NVIDIA", "Google",
+    "Google DeepMind", "Google Cloud", "Gemini", "AWS", "Microsoft", "Azure", "IBM",
+    "OpenAI", "Anthropic", "Claude", "Circle", "Arc", "Bright Data", "Vultr",
+    "Kraken", "Deriv", "MindsDB", "Snyk", "Mastercard", "JP Morgan", "Accenture",
+    "Siemens", "CrewAI", "LangChain", "Surge", "ElevenLabs", "Stability AI",
+    "Featherless", "Speechmatics", "Band",
+]
+
+
+def _companies(text):
+    if not isinstance(text, str):
+        return ""
+    found = []
+    for c in KNOWN_COMPANIES:
+        if c.lower() in text.lower() and c not in found:
+            found.append(c)
+    return " / ".join(found[:4])  # 最多列 4 个
+
 # 候选请求：(地址, 是否带 RSC 头)。依次尝试，命中即用。
 CANDIDATES = [
     ("https://lablab.ai/ai-hackathons", True),
@@ -131,7 +151,7 @@ def fetch_lablab_events():
             "date": _date_range(ev),
             "location": (ev.get("eventType") or "ONLINE").title(),
             "url": f"https://lablab.ai/event/{slug}" if slug else "https://lablab.ai/ai-hackathons",
-            "host": "",
+            "host": _companies(ev.get("name", "") + " " + desc),
             "registrations": (ev.get("_count") or {}).get("participants"),
             "prize": _prize(desc),
             "status": _status(ev),
