@@ -6,6 +6,7 @@ Devpost 抓取器
 """
 import json
 from sources_common import http_get, clean_text
+from fetch_lablab import _topics
 from datetime import date
 
 API = ("https://devpost.com/api/hackathons"
@@ -38,6 +39,7 @@ def fetch_devpost_events(max_pages=12):
                 "registrations": h.get("registrations_count"),
                 "prize": clean_text(h.get("prize_amount")) or None,
                 "status": STATUS_MAP.get(h.get("open_state", ""), "upcoming"),
+                "topics": _topics(h.get("title","") + " " + " ".join(t.get("name","") for t in h.get("themes",[]))),
                 "date_added": date.today().isoformat(),
             })
         print(f"[Devpost] 第 {page} 页：{len(items)} 个")
