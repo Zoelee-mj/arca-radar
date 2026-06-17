@@ -1,4 +1,4 @@
-"""出图器（分区版：黑客松 / Meetup / 已结束）"""
+"""Report builder (English, sectioned, collapsible)."""
 import html
 from datetime import date
 
@@ -9,13 +9,15 @@ TAG_COLORS = {
     "Open Source": ("#EAF3DE", "#27500A"), "Hackathon": ("#FAECE7", "#712B13"),
     "Builders": ("#E6F1FB", "#0C447C"), "Automation": ("#E1F5EE", "#085041"),
 }
-PRIORITY_STYLE = {"高": ("#E1F5EE", "#085041", "●"), "中": ("#FAEEDA", "#854F0B", "●"),
-                  "跳过": ("#F1EFE8", "#888780", "○")}
+PRIORITY_STYLE = {"高": ("#E1F5EE", "#085041", "High"), "中": ("#FAEEDA", "#854F0B", "Medium"),
+                  "跳过": ("#F1EFE8", "#888780", "Skip")}
 STATUS_STYLE = {
-    "open": ("报名中", "#E1F5EE", "#085041"), "live": ("进行中", "#E1F5EE", "#085041"),
-    "ongoing": ("进行中", "#E1F5EE", "#085041"), "upcoming": ("即将开始", "#FAEEDA", "#854F0B"),
-    "ended": ("已结束", "#F1EFE8", "#888780"),
+    "open": ("Open", "#E1F5EE", "#085041"), "live": ("Live", "#E1F5EE", "#085041"),
+    "ongoing": ("Live", "#E1F5EE", "#085041"), "upcoming": ("Upcoming", "#FAEEDA", "#854F0B"),
+    "ended": ("Ended", "#F1EFE8", "#888780"),
 }
+TOPIC_BG = ("#EEEDFE", "#3C3489")
+TOP_N = 10
 
 
 def _esc(s):
@@ -24,54 +26,90 @@ def _esc(s):
 def _num(n):
     return f"{int(n):,}" if isinstance(n, (int, float)) else "—"
 
-def _tag_pills(tags):
-    out = []
-    for t in tags:
-        bg, fg = TAG_COLORS.get(t, ("#F1EFE8", "#444441"))
-        out.append(f'<span class="pill" style="background:{bg};color:{fg}">{_esc(t)}</span>')
-    return "".join(out)
+def _topic_pills(topics):
+    if not topics:
+        return "—"
+    return "".join(f'<span class="pill" style="background:{TOPIC_BG[0]};color:{TOPIC_BG[1]}">{_esc(t)}</span>'
+                   for t in topics)
 
 def _priority_badge(p):
-    bg, fg, dot = PRIORITY_STYLE.get(p, ("#F1EFE8", "#888780", "○"))
-    return f'<span class="badge" style="background:{bg};color:{fg}">{dot} {_esc(p)}</span>'
-
-def _status_badge(s):
-    label, bg, fg = STATUS_STYLE.get((s or "upcoming").lower(), ("即将开始", "#FAEEDA", "#854F0B"))
+    bg, fg, label = PRIORITY_STYLE.get(p, ("#F1EFE8", "#888780", "Skip"))
     return f'<span class="badge" style="background:{bg};color:{fg}">{label}</span>'
 
+def _status_badge(s):
+    label, bg, fg = STATUS_STYLE.get((s or "upcoming").lower(), ("Upcoming", "#FAEEDA", "#854F0B"))
+    return f'<span class="badge" style="background:{bg};color:{fg}">{label}</span>'
 
-def _table(events, today, show_new=True):
+def _reward(e):
+    return _esc(e.get("prize"))
+
+
+def _hack_row(e, today, show_new):
+    is_new = "new" if (show_new and e.get("date_added") == today) else ""
+    nt = '<span class="newtag">NEW</span>' if is_new else ""
+    return f"""<tr class="{is_new}">
+      <td class="t-name"><a href="{_esc(e['url'])}" target="_blank">{_esc(e['title'])}</a>{nt}
+        <div class="t-loc">{_esc(e.get('location'))}</div></td>
+      <td class="muted">{_esc(e['source'])}</td>
+      <td>{_esc(e.get('host'))}</td>
+      <td class="muted nowrap">{_esc(e.get('date'))}</td>
+      <td>{_status_badge(e.get('status'))}</td>
+      <td class="muted">{_num(e.get('registrations'))}</td>
+      <td class="muted">{_reward(e)}</td>
+      <td><div class="t-tags">{_topic_pills(e.get('topics'))}</div></td>
+      <td class="score">{e['score']}</td>
+      <td>{_priority_badge(e['priority'])}</td>
+    </tr>"""
+
+
+def _luma_row(e, today, show_new):
+    is_new = "new" if (show_new and e.get("date_added") == today) else ""
+    nt = '<span class="newtag">NEW</span>' if is_new else ""
+    return f"""<tr class="{is_new}">
+      <td class="t-name"><a href="{_esc(e['url'])}" target="_blank">{_esc(e['title'])}</a>{nt}
+        <div class="t-loc">{_esc(e.get('location'))}</div></td>
+      <td class="muted">{_esc(e['source'])}</td>
+      <td>{_esc(e.get('host'))}</td>
+      <td class="muted nowrap">{_esc(e.get('date'))}</td>
+      <td>{_status_badge(e.get('status'))}</td>
+      <td class="muted">{_esc(e.get('event_type'))}</td>
+      <td class="muted">{_num(e.get('registrations'))}</td>
+      <td class="score">{e['score']}</td>
+      <td>{_priority_badge(e['priority'])}</td>
+    </tr>"""
+
+
+def _collapsible_table(events, head_html, row_fn, today, show_new=True):
     if not events:
-        return '<p class="empty">这个分区暂时没有活动。</p>'
-    rows = ""
-    for e in events:
-        is_new = "new" if (show_new and e.get("date_added") == today) else ""
-        new_tag = '<span class="newtag">NEW</span>' if is_new else ""
-        rows += f"""
-        <tr class="{is_new}">
-          <td class="t-name"><a href="{_esc(e['url'])}" target="_blank">{_esc(e['title'])}</a>{new_tag}
-            <div class="t-loc">{_esc(e.get('location'))}</div>
-            <div class="t-tags">{_tag_pills(e['tags'])}</div></td>
-          <td class="muted">{_esc(e['source'])}</td>
-          <td>{_esc(e.get('host'))}</td>
-          <td class="muted nowrap">{_esc(e.get('date'))}</td>
-          <td>{_status_badge(e.get('status'))}</td>
-          <td class="muted">{_esc(e.get('event_type'))}</td>
-          <td class="muted">{_num(e.get('registrations'))}</td>
-          <td class="muted">{_esc(e.get('prize'))}</td>
-          <td class="score">{e['score']}</td>
-          <td>{_priority_badge(e['priority'])}</td>
-        </tr>"""
-    return f"""<div class="table-wrap"><table>
-      <thead><tr>
-        <th>活动</th><th>来源</th><th>主办方 / Sponsor</th><th>日期</th><th>阶段</th>
-        <th>形式</th><th>报名人数</th><th>奖金 / 积分</th><th>ARCA分</th><th>优先级</th>
-      </tr></thead><tbody>{rows}</tbody></table></div>"""
+        return '<p class="empty">No events in this section.</p>'
+    first = events[:TOP_N]
+    rest = events[TOP_N:]
+    rows_first = "".join(row_fn(e, today, show_new) for e in first)
+    block = f'<div class="table-wrap"><table>{head_html}<tbody>{rows_first}'
+    if rest:
+        rows_rest = "".join(row_fn(e, today, show_new) for e in rest)
+        block += f'</tbody></table></div>'
+        block += (f'<details class="more"><summary>Show all {len(events)} '
+                  f'(+{len(rest)} more)</summary>'
+                  f'<div class="table-wrap"><table>{head_html}<tbody>{rows_rest}</tbody></table></div></details>')
+    else:
+        block += '</tbody></table></div>'
+    return block
+
+
+HACK_HEAD = """<thead><tr>
+  <th>Activity</th><th>Source</th><th>Organizer</th><th>Date</th><th>Status</th>
+  <th>Registrations</th><th>Reward</th><th>Topics</th><th>ARCA Score</th><th>Priority</th>
+</tr></thead>"""
+
+LUMA_HEAD = """<thead><tr>
+  <th>Activity</th><th>Source</th><th>Organizer / Cohost</th><th>Date</th><th>Status</th>
+  <th>Type</th><th>Registrations</th><th>ARCA Score</th><th>Priority</th>
+</tr></thead>"""
 
 
 def build_report(scored_events, today=None):
     today = today or date.today().isoformat()
-
     ended = [e for e in scored_events if (e.get("status") or "").lower() == "ended"]
     active = [e for e in scored_events if (e.get("status") or "").lower() != "ended"]
     hackathons = sorted([e for e in active if e.get("track") == "hackathon"],
@@ -86,42 +124,40 @@ def build_report(scored_events, today=None):
 
     new_cards = ""
     for e in sorted(new_today, key=lambda x: x["score"], reverse=True):
-        prize_line = f'<div class="card-prize">🏆 {_esc(e.get("prize"))}</div>' if e.get("prize") else ""
-        cls = "黑客松" if e.get("track") == "hackathon" else "活动"
-        new_cards += f"""
-        <div class="card">
+        reward = f'<div class="card-prize">🏆 {_esc(e.get("prize"))}</div>' if e.get("prize") else ""
+        cls = "Hackathon" if e.get("track") == "hackathon" else "Event"
+        new_cards += f"""<div class="card">
           <div class="card-top"><span class="card-title">{_esc(e['title'])}</span><span class="card-score">{e['score']}</span></div>
           <div class="card-meta">{cls} · {_esc(e['source'])} · {_esc(e.get('date'))} · {_esc(e.get('location'))}</div>
-          <div class="card-host">主办：{_esc(e.get('host'))}　报名 {_num(e.get('registrations'))}</div>
-          {prize_line}
-          <div class="pills">{_tag_pills(e['tags'])}</div>
-          <a class="card-link" href="{_esc(e['url'])}" target="_blank">查看活动 &rarr;</a>
+          <div class="card-host">Organizer: {_esc(e.get('host'))}　Reg {_num(e.get('registrations'))}</div>
+          {reward}
+          <a class="card-link" href="{_esc(e['url'])}" target="_blank">View event &rarr;</a>
         </div>"""
     if not new_cards:
-        new_cards = '<p class="empty">今天暂时没有新的高优先级活动。明天再来看看。</p>'
+        new_cards = '<p class="empty">No new high-priority events discovered today. Check back tomorrow.</p>'
 
     return TEMPLATE.format(
         today=_esc(today), total=total, high=high,
         hack_count=len(hackathons), meet_count=len(meetups), ended_count=len(ended),
         new_count=len(new_today), new_cards=new_cards,
-        hack_table=_table(hackathons, today),
-        meet_table=_table(meetups, today),
-        ended_table=_table(ended, today, show_new=False),
+        hack_table=_collapsible_table(hackathons, HACK_HEAD, _hack_row, today),
+        luma_table=_collapsible_table(meetups, LUMA_HEAD, _luma_row, today),
+        ended_table=_collapsible_table(ended, HACK_HEAD, _hack_row, today, show_new=False),
     )
 
 
 TEMPLATE = """<!DOCTYPE html>
-<html lang="zh"><head>
+<html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ARCA 活动雷达 · {today}</title>
+<title>ARCA Event Radar · {today}</title>
 <style>
   :root {{ --bg:#faf9f5; --surface:#fff; --line:rgba(0,0,0,0.10);
     --text:#1d1c1a; --muted:#6b6a65; --faint:#9b9a94; --info:#185fa5; }}
   * {{ box-sizing:border-box; }}
   body {{ margin:0; background:var(--bg); color:var(--text);
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;
     line-height:1.6; -webkit-font-smoothing:antialiased; }}
-  .wrap {{ max-width:1200px; margin:0 auto; padding:40px 24px 80px; }}
+  .wrap {{ max-width:1240px; margin:0 auto; padding:40px 24px 80px; }}
   .head {{ display:flex; align-items:center; gap:10px; }}
   .head h1 {{ font-size:24px; font-weight:600; margin:0; }}
   .sub {{ color:var(--muted); font-size:13px; margin:4px 0 28px; }}
@@ -141,9 +177,8 @@ TEMPLATE = """<!DOCTYPE html>
   .card-meta {{ font-size:12px; color:var(--muted); margin:6px 0 4px; }}
   .card-host {{ font-size:12px; color:var(--text); margin-bottom:6px; }}
   .card-prize {{ font-size:12px; color:#854f0b; margin-bottom:8px; }}
-  .pills {{ display:flex; flex-wrap:wrap; gap:6px; }}
-  .pill {{ font-size:11px; padding:2px 9px; border-radius:8px; }}
-  .card-link {{ display:inline-block; margin-top:12px; font-size:13px; color:var(--info); text-decoration:none; }}
+  .pill {{ font-size:11px; padding:2px 8px; border-radius:7px; margin:0 4px 4px 0; display:inline-block; }}
+  .card-link {{ display:inline-block; margin-top:10px; font-size:13px; color:var(--info); text-decoration:none; }}
   .empty {{ color:var(--muted); font-size:14px; background:var(--surface); border:1px dashed var(--line); border-radius:12px; padding:18px; }}
   .table-wrap {{ background:var(--surface); border:1px solid var(--line); border-radius:12px; overflow-x:auto; }}
   table {{ width:100%; border-collapse:collapse; font-size:13px; min-width:980px; }}
@@ -154,41 +189,41 @@ TEMPLATE = """<!DOCTYPE html>
   .t-name a {{ color:var(--text); font-weight:600; text-decoration:none; }}
   .t-name a:hover {{ color:var(--info); }}
   .t-loc {{ font-size:11px; color:var(--faint); margin-top:2px; }}
-  .t-tags {{ display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }}
+  .t-tags {{ max-width:200px; }}
   .newtag {{ font-size:10px; font-weight:700; color:#0f6e56; background:#e1f5ee; padding:1px 6px; border-radius:6px; margin-left:8px; }}
   .muted {{ color:var(--muted); }} .nowrap {{ white-space:nowrap; }}
   .score {{ font-weight:600; }}
   .badge {{ font-size:11px; padding:2px 10px; border-radius:8px; white-space:nowrap; }}
-  details.ended {{ margin-top:8px; }}
-  details.ended summary {{ cursor:pointer; color:var(--muted); font-size:13px; padding:8px 0; }}
+  details.more {{ margin-top:8px; }}
+  details.more summary {{ cursor:pointer; color:var(--info); font-size:13px; padding:8px 0; font-weight:500; }}
   .foot {{ color:var(--faint); font-size:12px; margin-top:26px; }}
 </style></head>
 <body><div class="wrap">
-  <div class="head"><span style="font-size:22px;">&#128225;</span><h1>ARCA 活动雷达</h1></div>
-  <div class="sub">数据来源：Luma + lablab + Devpost · 按 ARCA 标准分两类打分 · 生成于 {today}</div>
+  <div class="head"><span style="font-size:22px;">&#128225;</span><h1>ARCA Event Radar</h1></div>
+  <div class="sub">Sources: Luma + lablab + Devpost · Auto-scored by ARCA criteria · Generated {today}</div>
   <div class="stats">
-    <div class="stat"><div class="label">收录活动</div><div class="num">{total}</div></div>
-    <div class="stat"><div class="label">高优先级</div><div class="num green">{high}</div></div>
-    <div class="stat"><div class="label">黑客松(进行中)</div><div class="num">{hack_count}</div></div>
-    <div class="stat"><div class="label">活动/Meetup</div><div class="num">{meet_count}</div></div>
-    <div class="stat"><div class="label">已结束</div><div class="num faint">{ended_count}</div></div>
+    <div class="stat"><div class="label">Total events</div><div class="num">{total}</div></div>
+    <div class="stat"><div class="label">High priority</div><div class="num green">{high}</div></div>
+    <div class="stat"><div class="label">Hackathons (active)</div><div class="num">{hack_count}</div></div>
+    <div class="stat"><div class="label">Luma events</div><div class="num">{meet_count}</div></div>
+    <div class="stat"><div class="label">Ended</div><div class="num faint">{ended_count}</div></div>
   </div>
 
-  <div class="sec">&#128293; 今日新发现 · 值得关注</div>
-  <div class="sec-desc">当天新抓到、优先级为高/中的活动</div>
+  <div class="sec">&#128293; Discovered Today · Worth Attention</div>
+  <div class="sec-desc">Events first seen today with high/medium priority</div>
   <div class="cards">{new_cards}</div>
 
-  <div class="sec">&#127942; 黑客松（Devpost + lablab）</div>
-  <div class="sec-desc">按 技术主题 + 奖金 + 报名人数 打分 · 新增排最前</div>
+  <div class="sec">&#127942; Hackathons (Devpost + lablab)</div>
+  <div class="sec-desc">Scored by topics + reward + registrations · newest first · showing top 10</div>
   {hack_table}
 
-  <div class="sec">&#129309; 活动 / Meetup（Luma）</div>
-  <div class="sec-desc">按 技术主题 + 形式 打分 · 不计报名人数 · 新增排最前</div>
-  {meet_table}
+  <div class="sec">&#129309; Luma Events</div>
+  <div class="sec-desc">Meetup / Workshop / Hackathon · scored by topics + format · showing top 10</div>
+  {luma_table}
 
-  <div class="sec">&#128451; 已结束</div>
-  <div class="sec-desc">历史活动，仅供参考</div>
-  <details class="ended"><summary>展开查看 {ended_count} 个已结束活动</summary>{ended_table}</details>
+  <div class="sec">&#128451; Ended</div>
+  <div class="sec-desc">Past events, for reference</div>
+  <details class="more"><summary>Show {ended_count} ended events</summary>{ended_table}</details>
 
-  <div class="foot">每天自动重新生成。报名人数仅黑客松参与打分；Luma 活动常无公开人数，显示 &mdash;。</div>
+  <div class="foot">Auto-regenerated daily. Registrations count toward scoring for hackathons only.</div>
 </div></body></html>"""
