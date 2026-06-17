@@ -66,14 +66,9 @@ HACKATHON_REG_TIERS = [
 
 
 def _track(event):
-    """判断属于哪一类。"""
+    """判断属于哪一类：只看来源。Devpost/lablab → 黑客松；其余(Luma) → meetup 区。"""
     src = (event.get("source") or "").lower()
-    fmt = (event.get("event_type") or "").lower()
-    if src in ("devpost", "lablab"):
-        return "hackathon"
-    if any(k in fmt for k in ("hackathon", "demo day", "build", "buildathon")):
-        return "hackathon"
-    return "meetup"
+    return "hackathon" if src in ("devpost", "lablab") else "meetup"
 
 
 def _registration_bonus(reg):
