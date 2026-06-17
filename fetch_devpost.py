@@ -5,6 +5,8 @@ Devpost 抓取器
 所以能把全部进行中/即将开始的活动都抓回来（不再只有 18 个）。
 """
 import json
+import urllib.request
+from sources_common import UA
 from sources_common import http_get, clean_text
 from fetch_lablab import _topics
 from datetime import date
@@ -18,7 +20,11 @@ def fetch_devpost_events(max_pages=12):
     events = []
     for page in range(1, max_pages + 1):
         try:
-            data = json.loads(http_get(API.format(page=page)))
+            req = urllib.request.Request(API.format(page=page), headers={
+                "User-Agent": UA, "Accept": "application/json",
+                "X-Requested-With": "XMLHttpRequest", "Referer": "https://devpost.com/hackathons"})
+            with urllib.request.urlopen(req, timeout=12) as r:
+                data = json.loads(r.read().decode("utf-8", "replace"))
         except Exception as e:
             print(f"[Devpost] 第 {page} 页抓取失败：{e}")
             break
